@@ -17,6 +17,14 @@
   ],
   "author": "Neele",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neelegirly/OniSelf-Bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/neelegirly/OniSelf-Bot/issues"
+  },
+  "homepage": "https://github.com/neelegirly/OniSelf-Bot#readme",
   "engines": {
     "node": ">=18"
   },
