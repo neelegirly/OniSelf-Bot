@@ -24,15 +24,17 @@ extrahiert die Kern-Features in **eine Datei** ohne Plugin-Loader.
 
 | | Original | Base-Bot |
 |---|---|---|
-| Paket | `@neelegirly/baileys` 2.2.27 (**privater Fork**) + `@neelegirly/wa-api` (Multi-Session-Wrapper) | `baileys` (öffentliches Upstream-Paket, gepinnt auf 6.7.23 „legacy"/stable) |
+| Paket | `@neelegirly/baileys` 2.2.27 (**privater Fork**) + `@neelegirly/wa-api` (Multi-Session-Wrapper) | bevorzugt `@neelegirly/baileys` (optional), sonst `baileys` 6.7.23 „legacy"/stable |
 | API | Standard-Baileys API (`makeWASocket`, `useMultiFileAuthState`, `fetchLatestBaileysVersion`, `DisconnectReason`, `Browsers`) | identisch |
 
-**Lib beibehalten ≙ Baileys beibehalten.** Der private Fork
-(`@neelegirly/*`) lässt sich von Fremden **nicht installieren** (privates
-Repo, npm-Token abgelaufen). Deshalb hängt der Base-Bot am **öffentlichen
-`baileys`-Paket** derselben Library-Familie — gleiche API, aber `npm install`
-funktioniert für jeden. Das ist die einzige bewusste Abweichung und hier
-dokumentiert.
+**Lib beibehalten ≙ Baileys beibehalten.** Der Base-Bot lädt den privaten Fork
+`@neelegirly/baileys` **bevorzugt** (als `optionalDependency` + `overrides`),
+fällt aber auf das **öffentliche `baileys`-Paket** zurück, wenn der Fork nicht
+installiert ist. Hintergrund: Der private Fork (`@neelegirly/*`) lässt sich von
+Fremden **nicht installieren** (privates Repo, npm-Token abgelaufen) — als
+`optionalDependency` bricht `npm install` deshalb **nicht** ab, und Fremde
+bekommen automatisch das funktionsgleiche öffentliche Paket. Auf dem
+Original-Host (Fork vorhanden) nutzt der Bot den Fork. Beste aus beiden Welten.
 
 ## Session-Speicherung
 
@@ -70,9 +72,12 @@ dokumentiert.
   `nayan-video-downloader.vercel.app`, `api.siputzx.my.id`, `api.bk9.site`.
 - Plattformen: YouTube (Video/MP3, auch Suche), TikTok (Video + Slideshow),
   Instagram, Facebook, Spotify, SoundCloud.
-- Base-Bot übernimmt die **öffentlichen Fallback-APIs** (kein privates Paket)
-  für `.yt`, `.ytmp3`/`.play`, `.tiktok`/`.tt`, `.ig`, `.fb` — mit Größen- und
-  Timeout-Limit und klarem Fehlertext.
+- Base-Bot nutzt `.yt`, `.ytmp3`/`.play`, `.tiktok`/`.tt`, `.ig`, `.fb` —
+  bevorzugt über den **privaten Fork `@neelegirly/downloader`** (falls
+  installiert, `ytdown`/`tikdown`/`instagram`/`fbdown2`/`alldown`), sonst über
+  die **öffentlichen Fallback-APIs**. Mit Größen-/Timeout-Limit und klarem
+  Fehlertext. Der Fork ist `optionalDependency` — fehlt er, laufen die
+  öffentlichen APIs.
 
 ## Games
 

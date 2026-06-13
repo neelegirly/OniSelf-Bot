@@ -158,6 +158,25 @@ extrahiert wurde, steht in [`ANALYSE.md`](ANALYSE.md).
 
 ---
 
+## 🧩 Privater `@neelegirly`-Fork (optional)
+
+Der Bot bevorzugt — **falls installiert** — den privaten Fork:
+
+- `@neelegirly/baileys` statt des öffentlichen `baileys` (gleiche API);
+- `@neelegirly/downloader` als bevorzugte Download-Quelle.
+
+Beide sind in `package.json` als **`optionalDependencies`** eingetragen. Sind
+sie nicht installierbar (privates Paket / kein npm-Token), bricht `npm install`
+**nicht** ab — der Bot nutzt dann automatisch das öffentliche `baileys` und die
+öffentlichen Downloader-APIs. **Fremde brauchen also nichts Privates.** Welche
+Backends gerade aktiv sind, zeigt `.alive` und die Startup-Zeile `🔌 Backends`.
+
+> Für Maintainer mit Zugriff: `npm i @neelegirly/baileys @neelegirly/downloader`
+> (gültigen npm-Token in `~/.npmrc` vorausgesetzt) → der Fork wird beim nächsten
+> Start automatisch bevorzugt.
+
+---
+
 ## ⚠️ Hinweise
 
 - **Selbstbot-Risiko:** Das Automatisieren eines persönlichen WhatsApp-Accounts

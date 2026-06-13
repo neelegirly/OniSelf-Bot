@@ -35,5 +35,12 @@
     "pino": "^9.5.0",
     "pino-pretty": "^11.3.0",
     "qrcode-terminal": "^0.12.0"
+  },
+  "optionalDependencies": {
+    "@neelegirly/baileys": "2.2.27",
+    "@neelegirly/downloader": "^0.1.66"
+  },
+  "overrides": {
+    "@neelegirly/baileys": "2.2.27"
   }
 }

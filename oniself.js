@@ -20,16 +20,17 @@ const { Boom } = require('@hapi/boom');
 const config = require('./config');
 
 // ── Baileys laden ──────────────────────────────────────────────────────────
-// Öffentliches Upstream-Paket "baileys". (Der private @neelegirly-Fork des
-// Original-Projekts lässt sich von Fremden nicht installieren — siehe
-// ANALYSE.md. Gleiche API, deshalb 1:1 austauschbar.) Der Fallback erlaubt es,
-// den Bot auch in einer Umgebung zu starten, in der nur der Fork installiert
-// ist (z.B. zum Testen auf dem Original-Host).
-let baileys;
+// Bevorzugt der private @neelegirly-Fork (falls installiert — optionalDependency),
+// sonst das öffentliche Upstream-Paket "baileys". Gleiche API, 1:1 austauschbar.
+// So nutzt der Bot auf dem Original-Host den Fork, bleibt aber für Fremde, die
+// nur das öffentliche Paket bekommen, voll lauffähig. Siehe ANALYSE.md.
+let baileys, baileysImpl;
 try {
-  baileys = require('baileys');
-} catch (_) {
   baileys = require('@neelegirly/baileys');
+  baileysImpl = '@neelegirly/baileys (Fork)';
+} catch (_) {
+  baileys = require('baileys');
+  baileysImpl = 'baileys (public)';
 }
 const makeWASocket = baileys.default || baileys.makeWASocket;
 const {
@@ -284,13 +285,52 @@ async function pollinationsFallback(prompt, width, height) {
 }
 
 // ===========================================================================
-//  DOWNLOADER  (öffentliche, keylose Fallback-APIs)
+//  DOWNLOADER
+// ---------------------------------------------------------------------------
+//  Bevorzugt der private Fork @neelegirly/downloader (falls installiert —
+//  optionalDependency), danach die öffentlichen, keylosen Fallback-APIs. So
+//  nutzt der Original-Host den Fork, Fremde bekommen trotzdem funktionierende
+//  Downloads über die öffentlichen Endpoints.
 // ===========================================================================
 const DL_APIS = {
   nayan: 'https://nayan-video-downloader.vercel.app',
   siputzx: 'https://api.siputzx.my.id',
   bk9: 'https://api.bk9.site',
 };
+
+// Optionaler privater Downloader-Fork
+let neeleDl = null;
+try { neeleDl = require('@neelegirly/downloader'); } catch (_) { /* nicht installiert → öffentliche APIs */ }
+
+// Extrahiert eine brauchbare URL aus String | {url|hd|sd|download|link} | Array
+function pickUrl(v) {
+  if (!v) return undefined;
+  if (typeof v === 'string') return /^https?:\/\//i.test(v) ? v : undefined;
+  if (Array.isArray(v)) { for (const x of v) { const u = pickUrl(x); if (u) return u; } return undefined; }
+  if (typeof v === 'object') return pickUrl(v.url || v.hd || v.sd || v.download || v.link || v.high || v.low);
+  return undefined;
+}
+// Normalisiert die (variable) Fork-Antwort auf unser Meta-Format. Liefert null,
+// wenn nichts Brauchbares drin ist → Aufrufer fällt auf die öffentlichen APIs.
+function normalizeNeele(raw, platform) {
+  if (!raw) return null;
+  const d = raw.data || raw.result || raw;
+  const video = pickUrl(d.video) || pickUrl(d.hdvideo) || pickUrl(d.hd) || pickUrl(d.high) || pickUrl(d.url_hd);
+  const audio = pickUrl(d.audio) || pickUrl(d.music) || pickUrl(d.mp3);
+  const images = Array.isArray(d.images) ? d.images.map(pickUrl).filter(Boolean) : [];
+  const image = pickUrl(d.image) || pickUrl(d.thumbnail) || pickUrl(d.thumb) || images[0];
+  if (!video && !audio && !image && !images.length) return null;
+  return { title: d.title || d.name || platform, video, audio, image, images, platform };
+}
+// Baut eine "tryApis"-taugliche Fork-Funktion (oder null, wenn Fork/Methode fehlt).
+function neeleAttempt(method, arg, platform) {
+  if (!neeleDl || typeof neeleDl[method] !== 'function') return null;
+  return async () => {
+    const r = normalizeNeele(await neeleDl[method](arg), platform);
+    if (r) return r;
+    throw new Error(`@neelegirly/downloader ${method}`);
+  };
+}
 
 function detectPlatform(url) {
   const u = String(url).toLowerCase();
@@ -347,6 +387,8 @@ async function fetchMediaMeta(queryOrUrl, type) {
         throw new Error('siputzx ytmp3');
       },
     ];
+    const fork = neeleAttempt('ytdown', target, platform);
+    if (fork) apis.unshift(fork);          // Fork bevorzugt
     return await tryApis(apis);
   }
 
@@ -370,6 +412,8 @@ async function fetchMediaMeta(queryOrUrl, type) {
       async () => { const r = await axios.get(`${DL_APIS.nayan}/tikdown?url=${encodeURIComponent(resolved)}`, { timeout: 30000 }); if (r.data && r.data.status && r.data.data) return extract(r.data.data); throw new Error('nayan tikdown'); },
       async () => { const r = await axios.get(`${DL_APIS.siputzx}/api/d/tiktok?url=${encodeURIComponent(resolved)}`, { timeout: 25000 }); if (r.data && r.data.status && r.data.data) return extract(r.data.data); throw new Error('siputzx tiktok'); },
     ];
+    const fork = neeleAttempt('tikdown', resolved, platform);
+    if (fork) apis.unshift(fork);          // Fork bevorzugt
     return await tryApis(apis);
   }
 
@@ -396,6 +440,8 @@ async function fetchMediaMeta(queryOrUrl, type) {
         throw new Error('siputzx ig');
       },
     ];
+    const fork = neeleAttempt('instagram', queryOrUrl, platform);
+    if (fork) apis.unshift(fork);          // Fork bevorzugt
     return await tryApis(apis);
   }
 
@@ -411,6 +457,10 @@ async function fetchMediaMeta(queryOrUrl, type) {
         throw new Error('nayan fb');
       },
     ];
+    const fball = neeleAttempt('alldown', queryOrUrl, platform);
+    const fb2 = neeleAttempt('fbdown2', queryOrUrl, platform);
+    if (fball) apis.unshift(fball);
+    if (fb2) apis.unshift(fb2);            // fbdown2 zuerst, dann alldown, dann public
     return await tryApis(apis);
   }
 
@@ -602,6 +652,8 @@ cmd('alive', {
     await ctx.reply(frame('OniSelf · ALIVE', [
       `🟢 Online & bereit`,
       `⏱️ Uptime: ${h}h ${m}m ${s}s`,
+      `📦 Lib: ${baileysImpl}`,
+      `📥 DL: ${neeleDl ? 'neelegirly-Fork' : 'public APIs'}`,
       `🎨 SD-Endpoint: ${shorten(resolveSdEndpoint(), 34)}`,
       `🧠 Chat-KI: ${config.chat.geminiKey ? 'aktiv' : 'aus (kein Key)'}`,
       `💾 RAM: ${fmtMB(process.memoryUsage().rss)} MB`,
@@ -1083,6 +1135,7 @@ function main() {
   if (!config.ownerNumbers.length) {
     log.warn('⚠️  Keine OWNER_NUMBER in der .env gesetzt. Owner-only Befehle sind für niemanden freigeschaltet (außer eigene Nachrichten).');
   }
+  log.info({ baileys: baileysImpl, downloader: neeleDl ? '@neelegirly/downloader (Fork)' : 'public APIs' }, '🔌 Backends');
 
   connect().catch((err) => {
     log.fatal({ err: err.message }, 'Start fehlgeschlagen.');
