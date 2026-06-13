@@ -54,10 +54,51 @@ Kein Plugin-System, kein dynamischer Loader — clonen, `.env` ausfüllen, start
 | `.tiktok` / `.tt <url>` | TikTok-Video oder Foto-Slideshow |
 | `.ig <url>` | Instagram |
 | `.fb <url>` | Facebook |
+| `.twitter` / `.x <url>` | Twitter / X |
+| `.pinterest` / `.pin <url>` | Pinterest |
+| `.reddit <url>` | Reddit |
+| `.threads <url>` | Threads |
 | `.dl <url>` | Plattform automatisch erkennen |
 
 Limits: max. Dateigröße (`DOWNLOAD_MAX_MB`, Standard 100 MB) und Timeout
 (`DOWNLOAD_TIMEOUT_MS`). Bei Fehlschlag kommt ein klarer Fehlertext.
+
+### 🎴 Sticker & Media (ffmpeg, mitgeliefert)
+| Befehl | Beschreibung |
+|---|---|
+| `.sticker` / `.s` | Bild/kurzes Video → Sticker (auf Medium antworten) |
+| `.toimg` | Sticker → Bild |
+| `.tomp3` | Video → MP3 |
+| `.vv` | View-Once-Medium enthüllen (owner) |
+| `.upscale` | Bild hochskalieren (A1111-Extras) |
+
+### 👥 Gruppe (in Gruppen; Aktionen nur Admin/Owner)
+| Befehl | Beschreibung |
+|---|---|
+| `.tagall` / `.everyone` | alle markieren |
+| `.kick` · `.promote` · `.demote` · `.add` | Mitglieder verwalten |
+| `.grouplink` | Einladungslink |
+| `.setname` · `.setdesc` | Name/Beschreibung |
+| `.mute` / `.unmute` | Gruppe schließen/öffnen |
+| `.groupinfo` | Gruppen-Info |
+
+### 🛠️ Utility
+| Befehl | Beschreibung |
+|---|---|
+| `.tr <lang> <text>` | Übersetzen (Google) |
+| `.tts [lang] <text>` | Text → Sprachnachricht |
+| `.qr <text>` | QR-Code |
+| `.calc <ausdruck>` | Taschenrechner |
+| `.weather <ort>` | Wetter |
+| `.wiki` · `.urban` · `.ip` · `.short` · `.jid` | Wikipedia / Urban / IP-Info / URL kürzen / JID |
+
+### 🎉 Fun
+`.8ball` · `.flip` · `.rps` · `.joke` · `.fact` · `.ship` · `.rate` · `.password` ·
+`.cat` · `.dog` · `.github` · `.pokemon` · `.crypto` · `.fx` · `.color` · `.lyrics` ·
+Anime-Reaktionen: `.hug` `.pat` `.kiss` `.slap` `.cuddle` `.wave` `.dance` …
+
+### 👑 Owner
+`.block` · `.unblock` · `.restart` · `.shutdown`
 
 ### 🎮 Minispiele
 | Befehl | Beschreibung |

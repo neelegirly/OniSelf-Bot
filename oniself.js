@@ -38,7 +38,14 @@ const {
   fetchLatestBaileysVersion,
   DisconnectReason,
   Browsers,
+  downloadContentFromMessage,
 } = baileys;
+
+// ffmpeg (für Sticker / Audio-Konvertierung) — bevorzugt das mitgelieferte
+// Binary von @ffmpeg-installer, sonst system-ffmpeg im PATH.
+const { execFile } = require('child_process');
+let FFMPEG = 'ffmpeg';
+try { FFMPEG = require('@ffmpeg-installer/ffmpeg').path; } catch (_) { /* system ffmpeg */ }
 
 // ===========================================================================
 //  LOGGER
@@ -50,7 +57,8 @@ const log = pino({
 
 const SESSION_DIR = path.join(__dirname, 'session');
 const DATA_DIR = path.join(__dirname, 'data');
-for (const d of [SESSION_DIR, DATA_DIR]) {
+const TMP_DIR = path.join(__dirname, 'tmp');
+for (const d of [SESSION_DIR, DATA_DIR, TMP_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
@@ -338,6 +346,10 @@ function detectPlatform(url) {
   if (/tiktok\.com/.test(u)) return 'tiktok';
   if (/instagram\.com/.test(u)) return 'instagram';
   if (/facebook\.com|fb\.watch|fb\.com/.test(u)) return 'facebook';
+  if (/twitter\.com|x\.com/.test(u)) return 'twitter';
+  if (/pinterest\.|pin\.it/.test(u)) return 'pinterest';
+  if (/reddit\.com|redd\.it/.test(u)) return 'reddit';
+  if (/threads\.net/.test(u)) return 'threads';
   return 'unknown';
 }
 
@@ -464,7 +476,32 @@ async function fetchMediaMeta(queryOrUrl, type) {
     return await tryApis(apis);
   }
 
-  throw new Error('Plattform nicht erkannt. Unterstützt: YouTube, TikTok, Instagram, Facebook.');
+  // ── Twitter / X · Pinterest · Reddit · Threads ──
+  // Fork-Methode bevorzugt, dann ein öffentlicher siputzx-Endpoint. Generische
+  // Extraktion, da die Antwortformen variieren — schlägt sauber fehl, wenn nix.
+  const GENERIC = {
+    twitter:   { fork: 'twitterdown', api: 'twitter' },
+    pinterest: { fork: 'pintarest',   api: 'pinterest' },
+    reddit:    { fork: 'ndown',       api: 'reddit' },
+    threads:   { fork: 'threads',     api: 'threads' },
+  };
+  if (GENERIC[platform]) {
+    const g = GENERIC[platform];
+    const apis = [
+      async () => {
+        const r = await axios.get(`${DL_APIS.siputzx}/api/d/${g.api}?url=${encodeURIComponent(queryOrUrl)}`, { timeout: 25000, validateStatus: () => true });
+        const data = r.data && (r.data.data || r.data.result || r.data);
+        const norm = normalizeNeele({ data }, platform);
+        if (norm) return norm;
+        throw new Error(`siputzx ${g.api}`);
+      },
+    ];
+    const fork = neeleAttempt(g.fork, queryOrUrl, platform);
+    if (fork) apis.unshift(fork);
+    return await tryApis(apis);
+  }
+
+  throw new Error('Plattform nicht erkannt. Unterstützt: YouTube, TikTok, Instagram, Facebook, Twitter/X, Pinterest, Reddit, Threads.');
 }
 
 async function tryApis(apis) {
@@ -600,32 +637,37 @@ cmd(['menu', 'help', 'hilfe'], {
       `╰━━━━━━━━━━━━━━━━━━━╯`,
       '',
       `🎨 *KI / Stable Diffusion*`,
-      `• ${p}ai <prompt> — Bild generieren`,
-      `• ${p}img <prompt> — Alias`,
-      `• ${p}set <key> <wert> — Setting ändern`,
-      `• ${p}settings — deine Settings`,
-      `• ${p}setreset — zurücksetzen`,
-      `• ${p}chat <text> — mit Neele plaudern`,
+      `${p}ai · ${p}img <prompt> · ${p}upscale (reply Bild)`,
+      `${p}set <key> <wert> · ${p}settings · ${p}setreset`,
+      `${p}chat <text> — mit Neele plaudern`,
       '',
       `📥 *Downloader*`,
-      `• ${p}yt <url|suche> — YouTube Video`,
-      `• ${p}ytmp3 <url|suche> — YouTube MP3`,
-      `• ${p}play <suche> — Song als MP3`,
-      `• ${p}tiktok / ${p}tt <url>`,
-      `• ${p}ig <url> — Instagram`,
-      `• ${p}fb <url> — Facebook`,
+      `${p}yt · ${p}ytmp3 · ${p}play · ${p}tiktok · ${p}ig · ${p}fb`,
+      `${p}twitter · ${p}pinterest · ${p}reddit · ${p}threads · ${p}dl`,
+      '',
+      `🎴 *Sticker & Media*`,
+      `${p}sticker (${p}s) · ${p}toimg · ${p}tomp3 · ${p}vv`,
+      '',
+      `👥 *Gruppe*`,
+      `${p}tagall · ${p}kick · ${p}promote · ${p}demote · ${p}add`,
+      `${p}grouplink · ${p}setname · ${p}setdesc · ${p}mute · ${p}unmute · ${p}groupinfo`,
+      '',
+      `🛠️ *Utility*`,
+      `${p}tr <lang> <text> · ${p}tts · ${p}qr · ${p}calc · ${p}weather`,
+      `${p}wiki · ${p}urban · ${p}ip · ${p}short · ${p}jid`,
+      '',
+      `🎉 *Fun*`,
+      `${p}8ball · ${p}flip · ${p}rps · ${p}joke · ${p}fact · ${p}ship · ${p}rate`,
+      `${p}cat · ${p}dog · ${p}github · ${p}pokemon · ${p}crypto · ${p}fx · ${p}color`,
+      `${p}lyrics · ${p}password · ${p}hug · ${p}pat · ${p}kiss · ${p}slap …`,
       '',
       `🎮 *Minispiele*`,
-      `• ${p}ttt <1-9> — TicTacToe`,
-      `• ${p}hangman — Galgenmännchen`,
-      `• ${p}guess <1-9> — Zahl, ${p}guess <n> raten`,
-      `• ${p}quiz — Quizfrage, ${p}answer <a>`,
-      `• ${p}dice [seiten] — Würfeln`,
+      `${p}ttt · ${p}hangman · ${p}quiz/${p}answer · ${p}guess · ${p}dice`,
       '',
       `⚙️ *System*`,
-      `• ${p}ping — Latenz`,
-      `• ${p}alive — Status`,
-      `• ${p}whoami — wer bin ich`,
+      `${p}ping · ${p}alive · ${p}whoami` + (ctx.isOwner ? ` · ${p}block · ${p}restart` : ''),
+      '',
+      `_${Object.keys(COMMANDS).length} Befehle aktiv_`,
       config.persona.footer,
     ].join('\n');
     await ctx.reply(body);
@@ -988,6 +1030,544 @@ cmd(['dice', 'würfel', 'roll'], {
     await ctx.reply(`🎲 Du würfelst (1-${sides}): *${r}*`);
   },
 });
+
+// ===========================================================================
+//  MEDIA-HELFER  (Sticker / Konvertierung / zitierte Medien)
+// ===========================================================================
+function tmpFile(ext) { return path.join(TMP_DIR, `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`); }
+
+function ffmpegRun(args) {
+  return new Promise((resolve, reject) => {
+    execFile(FFMPEG, args, { timeout: 120000, maxBuffer: 1024 * 1024 * 64 }, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
+// Findet Medien im aktuellen ODER zitierten Message-Node → { node, type } | null
+function findMedia(msg) {
+  const scan = (mm) => {
+    if (!mm) return null;
+    if (mm.imageMessage) return { node: mm.imageMessage, type: 'image' };
+    if (mm.videoMessage) return { node: mm.videoMessage, type: 'video' };
+    if (mm.stickerMessage) return { node: mm.stickerMessage, type: 'sticker' };
+    if (mm.audioMessage) return { node: mm.audioMessage, type: 'audio' };
+    if (mm.documentMessage) return { node: mm.documentMessage, type: 'document' };
+    if (mm.viewOnceMessageV2?.message) return scan(mm.viewOnceMessageV2.message);
+    if (mm.viewOnceMessage?.message) return scan(mm.viewOnceMessage.message);
+    return null;
+  };
+  const m = msg.message || {};
+  const quoted = m.extendedTextMessage?.contextInfo?.quotedMessage;
+  return scan(quoted) || scan(m);
+}
+
+async function mediaToBuffer(node, type) {
+  const stream = await downloadContentFromMessage(node, type);
+  let buf = Buffer.alloc(0);
+  for await (const chunk of stream) buf = Buffer.concat([buf, chunk]);
+  return buf;
+}
+
+async function gifBufToMp4(buf) {
+  const inF = tmpFile('gif'), outF = tmpFile('mp4');
+  fs.writeFileSync(inF, buf);
+  await ffmpegRun(['-y', '-i', inF, '-movflags', 'faststart', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', outF]);
+  const out = fs.readFileSync(outF);
+  try { fs.unlinkSync(inF); fs.unlinkSync(outF); } catch (_) {}
+  return out;
+}
+
+// Erwähnte / zitierte JIDs (für kick, reactions …)
+function mentionedOrQuoted(ctx) {
+  const ci = ctx.msg.message?.extendedTextMessage?.contextInfo;
+  if (ci?.mentionedJid?.length) return ci.mentionedJid;
+  if (ci?.participant) return [ci.participant];
+  return [];
+}
+function getQuotedText(ctx) {
+  const q = ctx.msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  if (!q) return '';
+  return q.conversation || q.extendedTextMessage?.text || q.imageMessage?.caption || q.videoMessage?.caption || '';
+}
+async function isGroupAdmin(ctx, jid) {
+  try {
+    const meta = await ctx.sock.groupMetadata(ctx.from);
+    const p = meta.participants.find((x) => x.id === (jid || ctx.senderJid));
+    return !!p && (p.admin === 'admin' || p.admin === 'superadmin');
+  } catch (_) { return false; }
+}
+
+// ===========================================================================
+//  STICKER & MEDIA-KONVERTIERUNG
+// ===========================================================================
+cmd(['sticker', 's', 'stick'], {
+  desc: 'Bild/Video → Sticker',
+  run: async (ctx) => {
+    const media = findMedia(ctx.msg);
+    if (!media || (media.type !== 'image' && media.type !== 'video')) {
+      return ctx.reply(`🌸 Antworte auf ein Bild/kurzes Video mit \`${config.prefix}sticker\` (oder sende es direkt mit \`.s\` als Caption).`);
+    }
+    await ctx.react('🎴');
+    const inF = tmpFile(media.type === 'video' ? 'mp4' : 'jpg');
+    const outF = tmpFile('webp');
+    try {
+      fs.writeFileSync(inF, await mediaToBuffer(media.node, media.type));
+      const pad = 'scale=512:512:force_original_aspect_ratio=decrease,format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000';
+      if (media.type === 'image') {
+        await ffmpegRun(['-y', '-i', inF, '-vf', pad, '-f', 'webp', '-quality', '80', outF]);
+      } else {
+        await ffmpegRun(['-y', '-i', inF, '-t', '6', '-vf', `${pad.replace('format=rgba,', 'format=rgba,fps=15,')}`, '-loop', '0', '-an', '-vcodec', 'libwebp', '-preset', 'default', '-q:v', '55', outF]);
+      }
+      const webp = fs.readFileSync(outF);
+      if (webp.length > 1024 * 1024) return ctx.reply('❌ Sticker zu groß — nimm ein kürzeres/kleineres Video.');
+      await ctx.sock.sendMessage(ctx.from, { sticker: webp }, { quoted: ctx.msg });
+      await ctx.react('✅');
+    } catch (e) {
+      log.warn({ err: e.message }, 'sticker');
+      await ctx.react('❌');
+      await ctx.reply('❌ Sticker-Erstellung fehlgeschlagen (ffmpeg).');
+    } finally { try { fs.unlinkSync(inF); } catch (_) {} try { fs.unlinkSync(outF); } catch (_) {} }
+  },
+});
+
+cmd(['toimg', 'toimage'], {
+  desc: 'Sticker → Bild',
+  run: async (ctx) => {
+    const media = findMedia(ctx.msg);
+    if (!media || media.type !== 'sticker') return ctx.reply(`🌸 Antworte auf einen Sticker mit \`${config.prefix}toimg\`.`);
+    await ctx.react('🖼️');
+    const inF = tmpFile('webp'), outF = tmpFile('png');
+    try {
+      fs.writeFileSync(inF, await mediaToBuffer(media.node, 'sticker'));
+      await ffmpegRun(['-y', '-i', inF, outF]);
+      await ctx.sock.sendMessage(ctx.from, { image: fs.readFileSync(outF), caption: '🌸 Sticker → Bild' }, { quoted: ctx.msg });
+      await ctx.react('✅');
+    } catch (e) { await ctx.react('❌'); await ctx.reply('❌ Konvertierung fehlgeschlagen.'); }
+    finally { try { fs.unlinkSync(inF); } catch (_) {} try { fs.unlinkSync(outF); } catch (_) {} }
+  },
+});
+
+cmd(['tomp3', 'toaudio'], {
+  desc: 'Video → MP3',
+  run: async (ctx) => {
+    const media = findMedia(ctx.msg);
+    if (!media || (media.type !== 'video' && media.type !== 'audio')) return ctx.reply(`🌸 Antworte auf ein Video mit \`${config.prefix}tomp3\`.`);
+    await ctx.react('🎵');
+    const inF = tmpFile('mp4'), outF = tmpFile('mp3');
+    try {
+      fs.writeFileSync(inF, await mediaToBuffer(media.node, media.type));
+      await ffmpegRun(['-y', '-i', inF, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', outF]);
+      await ctx.sock.sendMessage(ctx.from, { audio: fs.readFileSync(outF), mimetype: 'audio/mpeg' }, { quoted: ctx.msg });
+      await ctx.react('✅');
+    } catch (e) { await ctx.react('❌'); await ctx.reply('❌ Konvertierung fehlgeschlagen.'); }
+    finally { try { fs.unlinkSync(inF); } catch (_) {} try { fs.unlinkSync(outF); } catch (_) {} }
+  },
+});
+
+cmd(['vv', 'reveal'], {
+  owner: true,
+  desc: 'View-Once enthüllen',
+  run: async (ctx) => {
+    const media = findMedia(ctx.msg);
+    if (!media) return ctx.reply(`🌸 Antworte auf eine View-Once-Nachricht mit \`${config.prefix}vv\`.`);
+    const buf = await mediaToBuffer(media.node, media.type);
+    if (media.type === 'video') await ctx.sock.sendMessage(ctx.from, { video: buf, caption: '👁️ enthüllt' });
+    else if (media.type === 'audio') await ctx.sock.sendMessage(ctx.from, { audio: buf, mimetype: 'audio/mpeg' });
+    else await ctx.sock.sendMessage(ctx.from, { image: buf, caption: '👁️ enthüllt' });
+  },
+});
+
+// ===========================================================================
+//  WEITERE DOWNLOADER
+// ===========================================================================
+cmd(['twitter', 'x', 'xdl'], { desc: 'Twitter/X', run: (ctx, a, t) => runDownload(ctx, t.trim(), 'auto') });
+cmd(['pinterest', 'pin'], { desc: 'Pinterest', run: (ctx, a, t) => runDownload(ctx, t.trim(), 'auto') });
+cmd(['reddit', 'rd'], { desc: 'Reddit', run: (ctx, a, t) => runDownload(ctx, t.trim(), 'auto') });
+cmd(['threads'], { desc: 'Threads', run: (ctx, a, t) => runDownload(ctx, t.trim(), 'auto') });
+
+// ===========================================================================
+//  GRUPPEN-VERWALTUNG  (nur in Gruppen; Aktionen nur Admin/Owner)
+// ===========================================================================
+cmd(['tagall', 'everyone', 'all'], {
+  desc: 'Alle markieren',
+  run: async (ctx, a, text) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    const meta = await ctx.sock.groupMetadata(ctx.from);
+    const jids = meta.participants.map((p) => p.id);
+    const body = `📢 *${text || 'Achtung!'}*\n\n` + jids.map((j) => `@${j.split('@')[0]}`).join(' ');
+    await ctx.sock.sendMessage(ctx.from, { text: body, mentions: jids });
+  },
+});
+cmd(['kick', 'remove'], {
+  desc: 'Mitglied entfernen',
+  run: async (ctx) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    if (!ctx.isOwner && !(await isGroupAdmin(ctx))) return ctx.reply('🔒 Nur Admins.');
+    const t = mentionedOrQuoted(ctx);
+    if (!t.length) return ctx.reply('🌸 Markiere oder zitiere die Person.');
+    try { await ctx.sock.groupParticipantsUpdate(ctx.from, t, 'remove'); await ctx.react('✅'); }
+    catch (e) { await ctx.reply('❌ Klappte nicht (bin ich Admin?).'); }
+  },
+});
+cmd(['add'], {
+  owner: true, desc: 'Nummer zur Gruppe hinzufügen',
+  run: async (ctx, a) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    const num = onlyDigits(a[0] || ''); if (!num) return ctx.reply(`🌸 \`${config.prefix}add <nummer>\``);
+    try { await ctx.sock.groupParticipantsUpdate(ctx.from, [`${num}@s.whatsapp.net`], 'add'); await ctx.react('✅'); }
+    catch (e) { await ctx.reply('❌ Klappte nicht (Privatsphäre-Einstellung der Person / kein Admin?).'); }
+  },
+});
+cmd(['promote'], {
+  desc: 'Zum Admin machen',
+  run: async (ctx) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    if (!ctx.isOwner && !(await isGroupAdmin(ctx))) return ctx.reply('🔒 Nur Admins.');
+    const t = mentionedOrQuoted(ctx); if (!t.length) return ctx.reply('🌸 Wen?');
+    try { await ctx.sock.groupParticipantsUpdate(ctx.from, t, 'promote'); await ctx.react('✅'); } catch (e) { await ctx.reply('❌ Klappte nicht.'); }
+  },
+});
+cmd(['demote'], {
+  desc: 'Admin entziehen',
+  run: async (ctx) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    if (!ctx.isOwner && !(await isGroupAdmin(ctx))) return ctx.reply('🔒 Nur Admins.');
+    const t = mentionedOrQuoted(ctx); if (!t.length) return ctx.reply('🌸 Wen?');
+    try { await ctx.sock.groupParticipantsUpdate(ctx.from, t, 'demote'); await ctx.react('✅'); } catch (e) { await ctx.reply('❌ Klappte nicht.'); }
+  },
+});
+cmd(['grouplink', 'glink'], {
+  desc: 'Einladungslink',
+  run: async (ctx) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    try { const code = await ctx.sock.groupInviteCode(ctx.from); await ctx.reply(`🔗 https://chat.whatsapp.com/${code}`); }
+    catch (e) { await ctx.reply('❌ Brauche Admin-Rechte.'); }
+  },
+});
+cmd(['setname', 'setsubject'], {
+  desc: 'Gruppenname ändern',
+  run: async (ctx, a, text) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.'); if (!text) return ctx.reply('🌸 Neuer Name?');
+    try { await ctx.sock.groupUpdateSubject(ctx.from, text); await ctx.react('✅'); } catch (e) { await ctx.reply('❌ Admin nötig.'); }
+  },
+});
+cmd(['setdesc'], {
+  desc: 'Gruppen-Beschreibung',
+  run: async (ctx, a, text) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.'); if (!text) return ctx.reply('🌸 Neue Beschreibung?');
+    try { await ctx.sock.groupUpdateDescription(ctx.from, text); await ctx.react('✅'); } catch (e) { await ctx.reply('❌ Admin nötig.'); }
+  },
+});
+cmd(['mute', 'close'], {
+  desc: 'Gruppe schließen (nur Admins schreiben)',
+  run: async (ctx) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    if (!ctx.isOwner && !(await isGroupAdmin(ctx))) return ctx.reply('🔒 Nur Admins.');
+    try { await ctx.sock.groupSettingUpdate(ctx.from, 'announcement'); await ctx.reply('🔒 Gruppe geschlossen.'); } catch (e) { await ctx.reply('❌ Klappte nicht.'); }
+  },
+});
+cmd(['unmute', 'open'], {
+  desc: 'Gruppe öffnen',
+  run: async (ctx) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    if (!ctx.isOwner && !(await isGroupAdmin(ctx))) return ctx.reply('🔒 Nur Admins.');
+    try { await ctx.sock.groupSettingUpdate(ctx.from, 'not_announcement'); await ctx.reply('🔓 Gruppe geöffnet.'); } catch (e) { await ctx.reply('❌ Klappte nicht.'); }
+  },
+});
+cmd(['groupinfo', 'ginfo'], {
+  desc: 'Gruppen-Info',
+  run: async (ctx) => {
+    if (!ctx.isGroup) return ctx.reply('🌸 Nur in Gruppen.');
+    const m = await ctx.sock.groupMetadata(ctx.from);
+    const admins = m.participants.filter((p) => p.admin).length;
+    await ctx.reply(frame('Gruppen-Info', [
+      `📛 ${m.subject}`,
+      `👥 ${m.participants.length} Mitglieder · ${admins} Admins`,
+      `👑 Owner: ${(m.owner || '—').split('@')[0]}`,
+      m.desc ? `📝 ${shorten(m.desc, 120)}` : '',
+    ].filter(Boolean)));
+  },
+});
+
+// ===========================================================================
+//  UTILITY
+// ===========================================================================
+cmd(['translate', 'tr', 'übersetze'], {
+  desc: 'Übersetzen: .tr <lang> <text>',
+  run: async (ctx, a, text) => {
+    if (!a.length) return ctx.reply(`🌸 \`${config.prefix}tr en hallo welt\` · oder auf eine Nachricht antworten`);
+    const lang = a[0];
+    let q = text.slice(a[0].length).trim() || getQuotedText(ctx);
+    if (!q) return ctx.reply('🌸 Text fehlt.');
+    try {
+      const r = await axios.get('https://translate.googleapis.com/translate_a/single', { params: { client: 'gtx', sl: 'auto', tl: lang, dt: 't', q }, timeout: 15000 });
+      const out = (r.data[0] || []).map((x) => x[0]).join('');
+      await ctx.reply(`🌐 *${lang}:* ${out}`);
+    } catch (e) { await ctx.reply('❌ Übersetzung fehlgeschlagen.'); }
+  },
+});
+cmd(['tts', 'say', 'voice'], {
+  desc: 'Text → Sprachnachricht',
+  run: async (ctx, a, text) => {
+    let lang = 'de', q = text;
+    if (a[0] && /^[a-z]{2}$/i.test(a[0])) { lang = a[0].toLowerCase(); q = text.slice(a[0].length).trim(); }
+    if (!q) q = getQuotedText(ctx);
+    if (!q) return ctx.reply(`🌸 \`${config.prefix}tts <text>\` (optional Sprache: \`.tts en hello\`)`);
+    q = q.slice(0, 200);
+    try {
+      const buf = await downloadBuffer(`https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(q)}&tl=${lang}&client=tw-ob`);
+      await ctx.sock.sendMessage(ctx.from, { audio: buf, mimetype: 'audio/mpeg', ptt: true }, { quoted: ctx.msg });
+    } catch (e) { await ctx.reply('❌ TTS fehlgeschlagen (Text evtl. zu lang).'); }
+  },
+});
+cmd(['qr', 'qrcode'], {
+  desc: 'QR-Code generieren',
+  run: async (ctx, a, text) => {
+    if (!text) return ctx.reply(`🌸 \`${config.prefix}qr <text/url>\``);
+    const buf = await downloadBuffer(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(text)}`);
+    await ctx.sock.sendMessage(ctx.from, { image: buf, caption: '🔳 QR' }, { quoted: ctx.msg });
+  },
+});
+cmd(['calc', 'rechne', 'math'], {
+  desc: 'Taschenrechner',
+  run: async (ctx, a, text) => {
+    const expr = text.trim();
+    if (!expr) return ctx.reply(`🌸 \`${config.prefix}calc 2+2*3\``);
+    if (!/^[0-9+\-*/().,%\s]+$/.test(expr)) return ctx.reply('❌ Nur Zahlen und + - * / ( ) % erlaubt.');
+    try {
+      // eslint-disable-next-line no-new-func — Eingabe ist per Regex auf Ziffern/Operatoren beschränkt
+      const r = Function(`"use strict"; return (${expr.replace(/,/g, '.')})`)();
+      if (!Number.isFinite(r)) throw new Error('inf');
+      await ctx.reply(`🧮 ${expr} = *${r}*`);
+    } catch (_) { await ctx.reply('❌ Ungültiger Ausdruck.'); }
+  },
+});
+cmd(['weather', 'wetter'], {
+  desc: 'Wetter',
+  run: async (ctx, a, text) => {
+    if (!text) return ctx.reply(`🌸 \`${config.prefix}weather Berlin\``);
+    try {
+      const r = await axios.get(`https://wttr.in/${encodeURIComponent(text)}?format=j1&lang=de`, { timeout: 15000 });
+      const c = r.data.current_condition[0], area = r.data.nearest_area[0];
+      await ctx.reply(frame('Wetter', [
+        `📍 ${area.areaName[0].value}, ${area.country[0].value}`,
+        `🌡️ ${c.temp_C}°C (gefühlt ${c.FeelsLikeC}°C)`,
+        `☁️ ${c.lang_de?.[0]?.value || c.weatherDesc[0].value}`,
+        `💧 ${c.humidity}% · 💨 ${c.windspeedKmph} km/h`,
+      ]));
+    } catch (e) { await ctx.reply('❌ Ort nicht gefunden.'); }
+  },
+});
+cmd(['wiki', 'wikipedia'], {
+  desc: 'Wikipedia-Zusammenfassung',
+  run: async (ctx, a, text) => {
+    if (!text) return ctx.reply(`🌸 \`${config.prefix}wiki <thema>\``);
+    const r = await axios.get(`https://de.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(text)}`, { timeout: 15000, validateStatus: () => true });
+    if (r.status !== 200 || !r.data.extract) return ctx.reply('❌ Nichts gefunden.');
+    await ctx.reply(`📖 *${r.data.title}*\n\n${shorten(r.data.extract, 600)}`);
+  },
+});
+cmd(['urban', 'ud'], {
+  desc: 'Urban Dictionary',
+  run: async (ctx, a, text) => {
+    if (!text) return ctx.reply(`🌸 \`${config.prefix}urban <wort>\``);
+    const r = await axios.get(`https://api.urbandictionary.com/v0/define?term=${encodeURIComponent(text)}`, { timeout: 15000 });
+    const d = r.data.list?.[0];
+    if (!d) return ctx.reply('❌ Nichts gefunden.');
+    await ctx.reply(`📕 *${text}*\n\n${shorten(d.definition, 500)}\n\n_${shorten(d.example, 200)}_`);
+  },
+});
+cmd(['ip', 'ipinfo'], {
+  desc: 'IP-Info',
+  run: async (ctx, a, text) => {
+    if (!text) return ctx.reply(`🌸 \`${config.prefix}ip 8.8.8.8\``);
+    const r = await axios.get(`http://ip-api.com/json/${encodeURIComponent(text)}`, { timeout: 15000 });
+    const d = r.data;
+    if (d.status !== 'success') return ctx.reply('❌ Ungültige IP/Domain.');
+    await ctx.reply(frame('IP-Info', [`🌐 ${d.query}`, `🏳️ ${d.country} (${d.countryCode})`, `🏙️ ${d.regionName}, ${d.city}`, `🏢 ${d.isp}`, `📍 ${d.lat}, ${d.lon}`]));
+  },
+});
+cmd(['short', 'shorturl'], {
+  desc: 'URL kürzen',
+  run: async (ctx, a, text) => {
+    if (!/^https?:\/\//i.test(text)) return ctx.reply(`🌸 \`${config.prefix}short <url>\``);
+    const r = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(text)}`, { timeout: 15000 });
+    await ctx.reply(`🔗 ${String(r.data).trim()}`);
+  },
+});
+cmd(['jid', 'chatid'], { desc: 'JID anzeigen', run: async (ctx) => ctx.reply(`🆔 Chat: \`${ctx.from}\`\n👤 Du: \`${ctx.senderJid}\``) });
+
+// ===========================================================================
+//  FUN
+// ===========================================================================
+const EIGHTBALL = ['Ja, definitiv! 💖', 'Sieht gut aus ✨', 'Vielleicht~ 🤔', 'Frag später nochmal 💭', 'Eher nicht 😅', 'Nein 🙅', 'Absolut! 🎉', 'Ohne Zweifel 👍', 'Verlass dich nicht drauf 🙃'];
+cmd(['8ball', '8b', 'magic8'], { desc: 'Magische 8', run: async (ctx, a, text) => { if (!text) return ctx.reply('🌸 Stell mir eine Ja/Nein-Frage.'); await ctx.reply(`🎱 ${EIGHTBALL[Math.floor(Math.random() * EIGHTBALL.length)]}`); } });
+cmd(['coinflip', 'flip', 'münze'], { desc: 'Münzwurf', run: async (ctx) => { await ctx.react('🪙'); await ctx.reply(Math.random() < 0.5 ? '🪙 *Kopf!*' : '🪙 *Zahl!*'); } });
+cmd(['rps', 'schnick'], {
+  desc: 'Schere-Stein-Papier',
+  run: async (ctx, a) => {
+    const EMO = { schere: '✂️', stein: '🪨', papier: '📄' };
+    const norm = { rock: 'stein', paper: 'papier', scissors: 'schere', scissor: 'schere' };
+    let me = (a[0] || '').toLowerCase(); me = norm[me] || me;
+    if (!EMO[me]) return ctx.reply(`🌸 \`${config.prefix}rps schere|stein|papier\``);
+    const bot = ['schere', 'stein', 'papier'][Math.floor(Math.random() * 3)];
+    const beats = { schere: 'papier', stein: 'schere', papier: 'stein' };
+    const res = me === bot ? '🤝 Unentschieden!' : (beats[me] === bot ? '🎉 Du gewinnst!' : '🤖 Ich gewinne!');
+    await ctx.reply(`${EMO[me]} vs ${EMO[bot]}\n${res}`);
+  },
+});
+cmd(['joke', 'witz'], {
+  desc: 'Witz',
+  run: async (ctx) => {
+    try {
+      const r = await axios.get('https://v2.jokeapi.dev/joke/Any?lang=de&safe-mode', { timeout: 15000 });
+      await ctx.reply(r.data.type === 'single' ? `😄 ${r.data.joke}` : `😄 ${r.data.setup}\n\n... ${r.data.delivery}`);
+    } catch (_) { await ctx.reply('❌ Gerade kein Witz parat 😅'); }
+  },
+});
+cmd(['fact', 'fakt'], {
+  desc: 'Zufälliger Fakt',
+  run: async (ctx) => {
+    try { const r = await axios.get('https://uselessfacts.jsph.pl/api/v2/facts/random?language=de', { timeout: 15000 }); await ctx.reply(`💡 ${r.data.text}`); }
+    catch (_) { await ctx.reply('❌ Kein Fakt verfügbar.'); }
+  },
+});
+cmd(['ship'], { desc: 'Liebes-Match', run: async (ctx, a, text) => { const pct = Math.floor(Math.random() * 101); const f = Math.round(pct / 10); await ctx.reply(`💘 *Liebes-Match*\n${text || 'ihr beide'}\n\n${'❤️'.repeat(f)}${'🤍'.repeat(10 - f)} *${pct}%*`); } });
+cmd(['rate', 'bewerte'], { desc: 'Bewertung', run: async (ctx, a, text) => { if (!text) return ctx.reply(`🌸 \`${config.prefix}rate <etwas>\``); await ctx.reply(`📊 *${text}* → *${Math.floor(Math.random() * 101)}/100*`); } });
+cmd(['password', 'pw', 'genpw'], { desc: 'Passwort-Generator', run: async (ctx, a) => { const len = Math.max(6, Math.min(64, parseInt(a[0]) || 16)); const ch = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*'; let pw = ''; for (let i = 0; i < len; i++) pw += ch[Math.floor(Math.random() * ch.length)]; await ctx.reply(`🔐 \`${pw}\``); } });
+cmd(['cat', 'katze'], { desc: 'Katzenbild', run: async (ctx) => { try { const buf = await downloadBuffer('https://cataas.com/cat'); await ctx.sock.sendMessage(ctx.from, { image: buf, caption: '🐱 miau~' }, { quoted: ctx.msg }); } catch (_) { await ctx.reply('❌ Keine Katze 😿'); } } });
+cmd(['dog', 'hund'], {
+  desc: 'Hundebild',
+  run: async (ctx) => {
+    try {
+      const r = await axios.get('https://random.dog/woof.json', { timeout: 15000 });
+      const buf = await downloadBuffer(r.data.url);
+      if (/\.mp4$/i.test(r.data.url)) await ctx.sock.sendMessage(ctx.from, { video: buf, caption: '🐶 wuff~', gifPlayback: true }, { quoted: ctx.msg });
+      else await ctx.sock.sendMessage(ctx.from, { image: buf, caption: '🐶 wuff~' }, { quoted: ctx.msg });
+    } catch (_) { await ctx.reply('❌ Kein Hund 🐾'); }
+  },
+});
+cmd(['github', 'gh'], {
+  desc: 'GitHub-Profil',
+  run: async (ctx, a) => {
+    if (!a[0]) return ctx.reply(`🌸 \`${config.prefix}github <user>\``);
+    const r = await axios.get(`https://api.github.com/users/${encodeURIComponent(a[0])}`, { timeout: 15000, validateStatus: () => true });
+    if (r.status !== 200) return ctx.reply('❌ Nutzer nicht gefunden.');
+    const d = r.data; const buf = await downloadBuffer(d.avatar_url);
+    await ctx.sock.sendMessage(ctx.from, { image: buf, caption: frame('GitHub', [`👤 ${d.login}${d.name ? ` (${d.name})` : ''}`, `📦 Repos: ${d.public_repos}`, `👥 ${d.followers} Follower · folgt ${d.following}`, d.bio ? `📝 ${d.bio}` : '', `🔗 ${d.html_url}`].filter(Boolean)) }, { quoted: ctx.msg });
+  },
+});
+cmd(['pokemon', 'pokedex'], {
+  desc: 'Pokédex',
+  run: async (ctx, a) => {
+    if (!a[0]) return ctx.reply(`🌸 \`${config.prefix}pokemon pikachu\``);
+    const r = await axios.get(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(a[0].toLowerCase())}`, { timeout: 15000, validateStatus: () => true });
+    if (r.status !== 200) return ctx.reply('❌ Nicht gefunden.');
+    const d = r.data; const img = d.sprites.other?.['official-artwork']?.front_default || d.sprites.front_default;
+    const buf = await downloadBuffer(img);
+    await ctx.sock.sendMessage(ctx.from, { image: buf, caption: frame('Pokédex', [`#${d.id} ${d.name}`, `📏 ${d.height / 10}m · ⚖️ ${d.weight / 10}kg`, `🔮 ${d.types.map((t) => t.type.name).join(', ')}`, `💪 ${d.abilities.map((x) => x.ability.name).join(', ')}`]) }, { quoted: ctx.msg });
+  },
+});
+cmd(['crypto', 'coin'], {
+  desc: 'Krypto-Kurs',
+  run: async (ctx, a) => {
+    const id = (a[0] || 'bitcoin').toLowerCase();
+    const r = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=usd,eur&include_24hr_change=true`, { timeout: 15000 });
+    const d = r.data[id];
+    if (!d) return ctx.reply('❌ Coin nicht gefunden (z.B. bitcoin, ethereum, solana).');
+    await ctx.reply(frame('Crypto', [`🪙 ${id}`, `💵 $${d.usd}`, `💶 €${d.eur}`, `📈 24h: ${(d.usd_24h_change || 0).toFixed(2)}%`]));
+  },
+});
+cmd(['currency', 'fx', 'umrechnen'], {
+  desc: 'Währungsrechner: .fx 100 usd eur',
+  run: async (ctx, a) => {
+    if (a.length < 3) return ctx.reply(`🌸 \`${config.prefix}fx 100 usd eur\``);
+    const amt = parseFloat(a[0]); const from = a[1].toUpperCase(), to = a[2].toUpperCase();
+    if (isNaN(amt)) return ctx.reply('❌ Betrag ungültig.');
+    const r = await axios.get(`https://open.er-api.com/v6/latest/${from}`, { timeout: 15000 });
+    const rate = r.data.rates?.[to];
+    if (!rate) return ctx.reply('❌ Währung ungültig.');
+    await ctx.reply(`💱 ${amt} ${from} = *${(amt * rate).toFixed(2)} ${to}*`);
+  },
+});
+cmd(['color', 'farbe'], {
+  desc: 'Farbe anzeigen',
+  run: async (ctx, a) => {
+    const hex = (a[0] || '').replace('#', '');
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return ctx.reply(`🌸 \`${config.prefix}color ff69b4\``);
+    const buf = await downloadBuffer(`https://singlecolorimage.com/get/${hex}/400x400`);
+    let name = '';
+    try { const r = await axios.get(`https://www.thecolorapi.com/id?hex=${hex}`, { timeout: 10000 }); name = r.data?.name?.value || ''; } catch (_) {}
+    await ctx.sock.sendMessage(ctx.from, { image: buf, caption: `🎨 #${hex}${name ? ` · ${name}` : ''}` }, { quoted: ctx.msg });
+  },
+});
+cmd(['lyrics', 'songtext'], {
+  desc: 'Songtext: .lyrics Künstler - Titel',
+  run: async (ctx, a, text) => {
+    const parts = text.split('-');
+    if (parts.length < 2) return ctx.reply(`🌸 \`${config.prefix}lyrics Künstler - Titel\``);
+    const r = await axios.get(`https://api.lyrics.ovh/v1/${encodeURIComponent(parts[0].trim())}/${encodeURIComponent(parts.slice(1).join('-').trim())}`, { timeout: 20000, validateStatus: () => true });
+    if (r.status !== 200 || !r.data.lyrics) return ctx.reply('❌ Keine Lyrics gefunden.');
+    await ctx.reply(`🎶 *${text.trim()}*\n\n${shorten(r.data.lyrics, 1500)}`);
+  },
+});
+
+// ── Anime-Reaktions-GIFs (waifu.pics) ──
+const REACTIONS = ['hug', 'pat', 'kiss', 'slap', 'cuddle', 'wave', 'smile', 'dance', 'cry', 'poke', 'bonk', 'blush', 'happy', 'wink', 'highfive', 'bite', 'lick'];
+for (const re of REACTIONS) {
+  cmd([re], {
+    desc: `Anime-Reaktion: ${re}`,
+    run: async (ctx) => {
+      try {
+        const r = await axios.get(`https://api.waifu.pics/sfw/${re}`, { timeout: 15000 });
+        const gif = await downloadBuffer(r.data.url);
+        const mp4 = await gifBufToMp4(gif);
+        const targets = mentionedOrQuoted(ctx);
+        const cap = targets.length ? `@${targets[0].split('@')[0]} — ${re}! 🌸` : `${re}! 🌸`;
+        await ctx.sock.sendMessage(ctx.from, { video: mp4, gifPlayback: true, caption: cap, mentions: targets }, { quoted: ctx.msg });
+      } catch (e) { log.warn({ err: e.message, re }, 'reaction'); await ctx.reply(`❌ ${re} gerade nicht verfügbar.`); }
+    },
+  });
+}
+
+// ===========================================================================
+//  AI · UPSCALE  (A1111 extras)
+// ===========================================================================
+cmd(['upscale', 'hd', 'remini'], {
+  desc: 'Bild hochskalieren (A1111)',
+  run: async (ctx, a) => {
+    const media = findMedia(ctx.msg);
+    if (!media || media.type !== 'image') return ctx.reply(`🌸 Antworte auf ein Bild mit \`${config.prefix}upscale\`.`);
+    await ctx.react('🔍');
+    try {
+      const buf = await mediaToBuffer(media.node, 'image');
+      const scale = Math.max(2, Math.min(4, parseInt(a[0]) || 2));
+      const r = await axios.post(`${resolveSdEndpoint()}/sdapi/v1/extra-single-image`, {
+        image: buf.toString('base64'), upscaling_resize: scale, upscaler_1: 'R-ESRGAN 4x+',
+      }, { timeout: config.sd.timeoutMs });
+      if (!r.data.image) throw new Error('kein Bild');
+      await ctx.sock.sendMessage(ctx.from, { image: Buffer.from(String(r.data.image).split(',').pop(), 'base64'), caption: `🔍 Upscaled ×${scale}` }, { quoted: ctx.msg });
+      await ctx.react('✅');
+    } catch (e) {
+      await ctx.react('❌');
+      const off = ['ECONNREFUSED', 'ECONNABORTED', 'ETIMEDOUT'].includes(e.code) || !e.response;
+      await ctx.reply(off ? '❌ SD-Backend nicht erreichbar.' : `❌ ${shorten(e.message, 120)}`);
+    }
+  },
+});
+
+// ===========================================================================
+//  OWNER-TOOLS
+// ===========================================================================
+cmd(['block'], {
+  owner: true, desc: 'Nutzer blockieren',
+  run: async (ctx) => { const t = mentionedOrQuoted(ctx)[0] || (ctx.isGroup ? null : ctx.from); if (!t) return ctx.reply('🌸 Wen blockieren?'); await ctx.sock.updateBlockStatus(t, 'block'); await ctx.reply('🚫 Blockiert.'); },
+});
+cmd(['unblock'], {
+  owner: true, desc: 'Nutzer entblocken',
+  run: async (ctx) => { const t = mentionedOrQuoted(ctx)[0] || (ctx.isGroup ? null : ctx.from); if (!t) return ctx.reply('🌸 Wen entblocken?'); await ctx.sock.updateBlockStatus(t, 'unblock'); await ctx.reply('✅ Entblockt.'); },
+});
+cmd(['restart', 'neustart'], { owner: true, desc: 'Neustart (unter pm2)', run: async (ctx) => { await ctx.reply('🔄 Starte neu... (nur unter pm2/Prozessmanager)'); setTimeout(() => process.exit(0), 800); } });
+cmd(['shutdown', 'kill'], { owner: true, desc: 'Bot stoppen', run: async (ctx) => { await ctx.reply('🛑 Fahre runter...'); setTimeout(() => process.exit(1), 800); } });
 
 // ===========================================================================
 //  MESSAGE-HANDLER  (Parsing + Routing + Owner-Gate)
