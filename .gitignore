@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Secrets — NIEMALS committen
+.env
+
+# WhatsApp-Session (Auth-State) — wird zur Laufzeit erzeugt
+session/
+
+# Daten & Laufzeit-Artefakte
+data/
+cache/
+tmp/
+downloads/
+
+# Logs
+*.log
+logs/
+
+# OS / Editor
+.DS_Store
+*.swp
+.vscode/
+.idea/

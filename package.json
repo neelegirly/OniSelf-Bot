@@ -1,0 +1,31 @@
+{
+  "name": "oniself-bot",
+  "version": "1.0.0",
+  "description": "OniSelf — ein monolithischer WhatsApp-Selfbot (Baileys): Downloader, Stable-Diffusion-KI, Minispiele und die Neele-Girl-Persona. Alles in einer Datei.",
+  "main": "oniself.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node oniself.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "selfbot",
+    "stable-diffusion",
+    "downloader",
+    "bot"
+  ],
+  "author": "Neele",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "axios": "^1.7.7",
+    "baileys": "6.7.23",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
